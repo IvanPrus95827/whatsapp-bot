@@ -1,0 +1,15 @@
+# Environment variables for WhatsApp Pilates Bot
+# Copy these to your environment or create a .env file
+
+# 2Chat API Configuration
+export TWOCHAT_API_KEY="your-2chat-api-key-here"
+export BOT_NUMBER="+353873326005"
+
+# Gemini AI Configuration  
+export GEMINI_API_KEY="your-gemini-api-key-here"
+
+# Optional: Customize bot behavior
+# export IRELAND_TIMEZONE="Europe/Dublin"
+# export SATURDAY_REPORT_TIME="08:00"
+# export MESSAGE_CHECK_INTERVAL="30"
+# export ERROR_RETRY_INTERVAL="60"
