@@ -22,6 +22,7 @@ def test_configuration():
     print(f"Bot Number: {config.BOT_NUMBER}")
     print(f"Ireland Timezone: {config.IRELAND_TIMEZONE}")
     print(f"Saturday Report Time: {config.SATURDAY_REPORT_TIME}")
+    print(f"Minimum Group Age: {config.MIN_GROUP_AGE_DAYS} days")
     print()
 
 def test_bot_initialization():
@@ -96,6 +97,16 @@ def test_2chat_connection():
         for group in groups:
             print(f"  - {group.name} ({group.uuid})")
             print(f"    Members: {len(group.participants)}")
+            if group.created_at:
+                from datetime import datetime
+                try:
+                    created_date = datetime.fromisoformat(group.created_at.replace('Z', '+00:00'))
+                    age_days = (datetime.now() - created_date).days
+                    print(f"    Age: {age_days} days")
+                except:
+                    print(f"    Created: {group.created_at}")
+            else:
+                print(f"    Age: Unknown")
         
         return True
     except Exception as e:

@@ -5,6 +5,7 @@ An AI-powered WhatsApp bot that monitors Pilates group chats and tracks weekly t
 ## Features
 
 - **Automatic Group Detection**: Finds all WhatsApp groups containing "pilates" in their name (case insensitive)
+- **Group Age Safety Filter**: Only monitors groups older than 30 days to prevent account bans from interacting with newly created groups
 - **AI Message Analysis**: Uses Google Gemini AI to analyze messages and detect when members complete their weekly training
 - **Weekly Tracking**: Tracks completion status for each member per week
 - **Saturday Reports**: Automatically sends reports every Saturday at 8 AM (Ireland timezone)
@@ -53,6 +54,40 @@ The bot will:
 - Use AI to analyze messages for weekly plan completion
 - Send automatic reports every Saturday at 8 AM Ireland time
 
+## Safety Features
+
+### Account Protection
+To prevent your WhatsApp account from being banned, the bot includes several safety measures:
+
+1. **Group Age Filter**: Only monitors groups that are **30+ days old**
+   - Newly created groups are automatically skipped
+   - Prevents triggering WhatsApp's spam detection systems
+   - Configurable via `MIN_GROUP_AGE_DAYS` in config.py
+
+2. **Conservative Monitoring**: 
+   - 30-second intervals between message checks (not too frequent)
+   - Proper error handling with retry delays
+   - Only monitors groups with "pilates" keyword
+
+3. **Selective Engagement**:
+   - Only sends messages to established groups
+   - Individual reminders are sent privately
+   - No bulk messaging or spam-like behavior
+
+### Logs and Transparency
+The bot provides detailed logging showing:
+- Which groups are being monitored vs. skipped
+- Group ages and creation dates
+- AI analysis results
+- Message sending success/failure
+
+**Example log output:**
+```
+Found Pilates group: Weekly Pilates Class (WAG123...) - Age: 45 days
+Skipping recently created Pilates group: New Pilates Group (created: 2024-01-15)
+Gemini analysis for 'Finished my workout today...': YES
+```
+
 ## How It Works
 
 ### Message Analysis
@@ -75,10 +110,25 @@ Every Saturday at 8 AM (Ireland time), the bot:
 ## Configuration
 
 You can modify settings in `config.py`:
-- Message templates
-- Time zones and scheduling
-- AI analysis prompts
-- Monitoring intervals
+
+### Safety Settings
+- `MIN_GROUP_AGE_DAYS = 30` - Minimum group age in days before monitoring (prevents account bans)
+
+### Bot Behavior
+- `MESSAGE_CHECK_INTERVAL = 30` - How often to check for new messages (seconds)
+- `ERROR_RETRY_INTERVAL = 60` - Wait time after errors (seconds)
+- `SATURDAY_REPORT_TIME = "08:00"` - Time for weekly reports (Ireland timezone)
+
+### Group Detection
+- `PILATES_KEYWORD = 'pilates'` - Keyword to identify relevant groups (case insensitive)
+
+### Message Templates
+- `GROUP_CONGRATULATIONS_TEMPLATE` - Message sent to groups for completed members
+- `INDIVIDUAL_REMINDER_TEMPLATE` - Private reminder for incomplete members
+- `GEMINI_ANALYSIS_PROMPT` - AI prompt for analyzing training completion messages
+
+### Timezone
+- `IRELAND_TIMEZONE = 'Europe/Dublin'` - Timezone for scheduling and date calculations
 
 ## API Requirements
 
@@ -99,6 +149,7 @@ You can modify settings in `config.py`:
 - Store API keys as environment variables in production
 - Ensure your 2Chat account has appropriate permissions
 - The bot only reads messages from groups containing "pilates" in the name
+- **Safety Feature**: Bot automatically skips groups created less than 30 days ago to prevent account bans
 - Individual reminder messages are sent privately
 
 ## Troubleshooting

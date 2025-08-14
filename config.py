@@ -1,10 +1,13 @@
 # Configuration file for WhatsApp Pilates Bot
 
 import os
+import dotenv
+
+dotenv.load_dotenv()
 
 # 2Chat API Configuration
-TWOCHAT_API_KEY = os.getenv('TWOCHAT_API_KEY', 'UAKab3401ad-1a9f-4ecb-822a-cb960f89903c')
-BOT_NUMBER = os.getenv('BOT_NUMBER', '+353873326005')
+TWOCHAT_API_KEY = os.getenv('TWOCHAT_API_KEY')
+BOT_NUMBER = os.getenv('BOT_NUMBER')
 
 # Gemini AI Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')  # Must be set
@@ -17,6 +20,7 @@ ERROR_RETRY_INTERVAL = 60   # seconds
 
 # Group Settings
 PILATES_KEYWORD = 'pilates'  # Case insensitive search
+MIN_GROUP_AGE_DAYS = 30  # Minimum group age in days to avoid newly created groups (safety feature)
 
 # Message Templates
 GROUP_CONGRATULATIONS_TEMPLATE = "🎉 Well done on training! {count} members completed their weekly pilates plan this week. Keep up the great work! 💪"

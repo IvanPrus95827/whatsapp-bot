@@ -20,6 +20,7 @@ class GroupInfo:
     uuid: str
     name: str
     participants: List[Dict]
+    created_at: str = ""
 
 @dataclass
 class WeeklyProgress:
@@ -29,14 +30,14 @@ class WeeklyProgress:
     messages_analyzed: Set[str]
 
 class WhatsAppPilatesBot:
-    def __init__(self, api_key: str, gemini_api_key: str, bot_number: str = "+353873326005"):
+    def __init__(self, api_key: str, gemini_api_key: str, bot_number: str):
         self.api_key = api_key
         self.bot_number = bot_number
         self.base_url = "https://api.p.2chat.io/open/whatsapp"
         
         # Initialize Gemini AI
         genai.configure(api_key=gemini_api_key)
-        self.model = genai.GenerativeModel('gemini-pro')
+        self.model = genai.GenerativeModel('gemini-2.5-flash')
         
         # Ireland timezone
         self.ireland_tz = pytz.timezone(config.IRELAND_TIMEZONE)
@@ -55,6 +56,39 @@ class WhatsAppPilatesBot:
         now = datetime.now(self.ireland_tz)
         monday = now - timedelta(days=now.weekday())
         return monday.strftime('%Y-%m-%d')
+    
+    def is_group_old_enough(self, group_created_at: str) -> bool:
+        """Check if group is old enough to be safely monitored (prevents account bans)"""
+        try:
+            if not group_created_at:
+                # If no creation date available, assume it's old enough for safety
+                logger.warning("Group creation date not available, assuming it's old enough")
+                return True
+            
+            # Parse group creation date
+            if group_created_at.endswith('Z'):
+                created_date = datetime.fromisoformat(group_created_at.replace('Z', '+00:00'))
+            else:
+                created_date = datetime.fromisoformat(group_created_at)
+            
+            # Convert to Ireland timezone
+            created_date = created_date.astimezone(self.ireland_tz)
+            current_date = datetime.now(self.ireland_tz)
+            
+            # Calculate age in days
+            age_days = (current_date - created_date).days
+            
+            is_old_enough = age_days >= config.MIN_GROUP_AGE_DAYS
+            
+            if not is_old_enough:
+                logger.info(f"Group is only {age_days} days old (minimum: {config.MIN_GROUP_AGE_DAYS}), skipping for safety")
+            
+            return is_old_enough
+            
+        except Exception as e:
+            logger.error(f"Error checking group age: {e}")
+            # Return True for safety if we can't determine age
+            return True
     
     def find_pilates_groups(self) -> List[GroupInfo]:
         """Find all groups containing 'pilates' in their name (case insensitive)"""
@@ -76,12 +110,21 @@ class WhatsAppPilatesBot:
                     # Get group details including participants
                     group_details = self.get_group_details(group['uuid'])
                     if group_details:
+                        group_created_at = group_details.get('created_at', '')
+                        
+                        # Check if group is old enough to safely monitor
+                        if not self.is_group_old_enough(group_created_at):
+                            logger.info(f"Skipping recently created Pilates group: {group['name']} (created: {group_created_at})")
+                            continue
+                        
                         pilates_groups.append(GroupInfo(
                             uuid=group['uuid'],
                             name=group['name'],
-                            participants=group_details.get('participants', [])
+                            participants=group_details.get('participants', []),
+                            created_at=group_created_at
                         ))
-                        logger.info(f"Found Pilates group: {group['name']} ({group['uuid']})")
+                        age_days = (datetime.now(self.ireland_tz) - datetime.fromisoformat(group_created_at.replace('Z', '+00:00')).astimezone(self.ireland_tz)).days if group_created_at else "unknown"
+                        logger.info(f"Found Pilates group: {group['name']} ({group['uuid']}) - Age: {age_days} days")
             
             return pilates_groups
         
