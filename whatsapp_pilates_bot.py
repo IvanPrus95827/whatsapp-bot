@@ -55,7 +55,115 @@ class WhatsAppPilatesBot:
             'X-User-API-Key': self.api_key,
             'Content-Type': 'application/json'
         }
+        
+        # File paths for data persistence
+        self.available_groups_file = 'available_groups.json'
+        self.weekly_progress_file = 'weekly_progress.json'
+        
+        # Load existing data on initialization
+        self.load_available_groups()
+        self.load_weekly_progress()
     
+    def save_available_groups(self):
+        """Save available_groups to JSON file"""
+        try:
+            # Convert GroupInfo objects to dictionaries
+            groups_data = []
+            for group in self.available_groups:
+                groups_data.append({
+                    'uuid': group.uuid,
+                    'name': group.name,
+                    'participants': group.participants,
+                    'created_at': group.created_at
+                })
+            
+            with open(self.available_groups_file, 'w', encoding='utf-8') as f:
+                json.dump(groups_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Saved {len(groups_data)} groups to {self.available_groups_file}")
+            
+        except Exception as e:
+            logger.error(f"Error saving available_groups: {e}")
+    
+    def load_available_groups(self):
+        """Load available_groups from JSON file"""
+        try:
+            if os.path.exists(self.available_groups_file):
+                with open(self.available_groups_file, 'r', encoding='utf-8') as f:
+                    groups_data = json.load(f)
+                
+                # Convert dictionaries back to GroupInfo objects
+                self.available_groups = []
+                for group_dict in groups_data:
+                    group = GroupInfo(
+                        uuid=group_dict.get('uuid', ''),
+                        name=group_dict.get('name', ''),
+                        participants=group_dict.get('participants', []),
+                        created_at=group_dict.get('created_at', '')
+                    )
+                    self.available_groups.append(group)
+                
+                logger.info(f"Loaded {len(self.available_groups)} groups from {self.available_groups_file}")
+            else:
+                logger.info(f"No existing {self.available_groups_file} found, starting with empty groups")
+                
+        except Exception as e:
+            logger.error(f"Error loading available_groups: {e}")
+            self.available_groups = []
+    
+    def save_weekly_progress(self):
+        """Save weekly_progress to JSON file"""
+        try:
+            # Convert WeeklyProgress objects to dictionaries
+            progress_data = {}
+            for group_uuid, progress in self.weekly_progress.items():
+                progress_data[group_uuid] = {
+                    'group_uuid': progress.group_uuid,
+                    'week_start': progress.week_start,
+                    'completed_members': list(progress.completed_members),  # Convert set to list
+                    'completed_members_info': progress.completed_members_info,
+                    'messages_analyzed': list(progress.messages_analyzed)  # Convert set to list
+                }
+            
+            with open(self.weekly_progress_file, 'w', encoding='utf-8') as f:
+                json.dump(progress_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Saved weekly progress for {len(progress_data)} groups to {self.weekly_progress_file}")
+            
+        except Exception as e:
+            logger.error(f"Error saving weekly_progress: {e}")
+    
+    def load_weekly_progress(self):
+        """Load weekly_progress from JSON file"""
+        try:
+            if os.path.exists(self.weekly_progress_file):
+                with open(self.weekly_progress_file, 'r', encoding='utf-8') as f:
+                    progress_data = json.load(f)
+                
+                # Convert dictionaries back to WeeklyProgress objects
+                self.weekly_progress = {}
+                for group_uuid, progress_dict in progress_data.items():
+                    # Ensure backward compatibility - add completed_members_info if missing
+                    if 'completed_members_info' not in progress_dict:
+                        progress_dict['completed_members_info'] = {}
+                    
+                    progress = WeeklyProgress(
+                        group_uuid=progress_dict.get('group_uuid', ''),
+                        week_start=progress_dict.get('week_start', ''),
+                        completed_members=set(progress_dict.get('completed_members', [])),  # Convert list to set
+                        completed_members_info=progress_dict.get('completed_members_info', {}),
+                        messages_analyzed=set(progress_dict.get('messages_analyzed', []))  # Convert list to set
+                    )
+                    self.weekly_progress[group_uuid] = progress
+                
+                logger.info(f"Loaded weekly progress for {len(self.weekly_progress)} groups from {self.weekly_progress_file}")
+            else:
+                logger.info(f"No existing {self.weekly_progress_file} found, starting with empty progress")
+                
+        except Exception as e:
+            logger.error(f"Error loading weekly_progress: {e}")
+            self.weekly_progress = {}
+
     def get_current_week_start(self) -> str:
         """Get the start of current week (Monday) in Ireland timezone"""
         now = datetime.now(self.ireland_tz)
@@ -122,15 +230,20 @@ class WhatsAppPilatesBot:
                             logger.info(f"Skipping recently created Pilates group: {group['wa_group_name']} (created: {group_created_at})")
                             continue
                         
-                        pilates_groups.append(GroupInfo(
+                        group_info = GroupInfo(
                             uuid=group['uuid'],
                             name=group['wa_group_name'],
                             participants=group_details.get('participants', []),
                             created_at=group_created_at
-                        ))
+                        )
+                        pilates_groups.append(group_info)
                         age_days = (datetime.now(self.ireland_tz) - datetime.fromisoformat(group_created_at.replace('Z', '+00:00')).astimezone(self.ireland_tz)).days if group_created_at else "unknown"
                         logger.info(f"Found Pilates group: {group['wa_group_name']} ({group['uuid']}) - Age: {age_days} days")
-                    break
+            
+            # Update available_groups and save to file
+            self.available_groups = pilates_groups
+            self.save_available_groups()
+            
             return pilates_groups
         
         except Exception as e:
@@ -234,12 +347,18 @@ class WhatsAppPilatesBot:
     def saturday_report(self):
         """Send weekly reports on Saturday at 8 AM Ireland time"""
         logger.info("Generating Saturday weekly reports...")
-        
-        pilates_groups = self.find_pilates_groups()
-        
-        for group in pilates_groups:
-            progress = self.weekly_progress.get(group.uuid)
-            if not progress:
+
+        self.find_pilates_groups()
+
+        for uuid, progress in self.weekly_progress.items():
+            group = None
+            
+            for g in self.available_groups:
+                if g.uuid == uuid:
+                    group = g
+                    break
+
+            if not progress or not group:
                 continue
             
             # Ensure backward compatibility - add completed_members_info if missing
@@ -259,21 +378,26 @@ class WhatsAppPilatesBot:
                 completed_names = []
                 for phone_number in completed_numbers:
                     pushname = completed_members_info.get(phone_number, "Unknown")
-                    completed_names.append(pushname)
+                    if pushname != "Unknown":
+                        completed_names.append(pushname)
                 
                 # Create enhanced group message with names
-                if completed_count <= 5:  # If few members, list their names
-                    names_list = ", ".join(completed_names)
-                    group_message = f"🎉 Well done on training! {names_list} completed their weekly pilates plan this week. Keep up the great work! 💪"
-                else:  # If many members, just show count
-                    group_message = config.GROUP_CONGRATULATIONS_TEMPLATE.format(count=completed_count)
+                # if completed_count <= 5:  # If few members, list their names
+                names_list = ", ".join(completed_names)
+                group_message = f"🎉 Well done on training! {names_list} completed their weekly pilates plan this week. Keep up the great work! 💪"
+                # else:  # If many members, just show count
+                    # group_message = config.GROUP_CONGRATULATIONS_TEMPLATE.format(count=completed_count)
                 
-                self.send_group_message(group.uuid, group_message)
+                #### send messages to group ####
+                # self.send_group_message(group.uuid, group_message)
+                print(group_message)
             
+            print("-------------------------------- incompleted members --------------------------------")
             # Send individual reminders to incomplete members
             for phone_number in incomplete_numbers:
                 if phone_number and phone_number != self.bot_number:
-                    self.send_individual_message(phone_number, config.INDIVIDUAL_REMINDER_TEMPLATE)
+                    # self.send_individual_message(phone_number, config.INDIVIDUAL_REMINDER_TEMPLATE)
+                    print(phone_number)
             
             logger.info(f"Group {group.name}: {len(completed_numbers)} completed, {len(incomplete_numbers)} reminded")
     
@@ -306,8 +430,15 @@ class WhatsAppPilatesBot:
             
             logger.info(f"Processing webhook message: {message_id} from {from_number} ({sender_name}) in group: {group_name}")
             
-            if group_uuid not in self.available_groups.keys():
-                logger.info(f"Skipping non-pilates group: {group_name}")
+            # Check if this group is in our available pilates groups
+            group_found = False
+            for available_group in self.available_groups:
+                if available_group.uuid == group_uuid:
+                    group_found = True
+                    break
+            
+            if not group_found:
+                logger.info(f"Group {group_name} not in available pilates groups, skipping")
                 return
 
             # Only process user messages (not bot messages)
@@ -401,6 +532,9 @@ class WhatsAppPilatesBot:
             
             progress.messages_analyzed.add(message_id)
             
+            # Save progress after each update
+            self.save_weekly_progress()
+            
         except Exception as e:
             logger.error(f"Error processing webhook message: {e}")
             logger.error(f"Webhook data: {webhook_data}")
@@ -410,121 +544,104 @@ class WhatsAppPilatesBot:
         logger.info("Starting scheduler for weekly reports...")
         
         # Schedule Saturday reports (Ireland timezone)
-        # schedule.every().saturday.at(config.SATURDAY_REPORT_TIME).do(self.saturday_report)
+        schedule.every().saturday.at(config.SATURDAY_REPORT_TIME).do(self.saturday_report)
         
-        # # Run scheduler
-        # while True:
-        #     schedule.run_pending()
-        #     time.sleep(60)  # Check every minute for scheduled tasks
+        # Run scheduler
+        while True:
+            schedule.run_pending()
+            time.sleep(60)  # Check every minute for scheduled tasks
 
-# test
 
-TWOCHAT_API_KEY = config.TWOCHAT_API_KEY
-GEMINI_API_KEY = config.GEMINI_API_KEY
-BOT_NUMBER = config.BOT_NUMBER
-NGROK_TOKEN = config.NGROK_TOKEN
+# Global bot instance
+bot_instance = None
 
-bot_instance = WhatsAppPilatesBot(
+def create_app():
+    """Create and configure Flask app"""
+    app = Flask(__name__)
+    
+    @app.route("/", methods=["GET"])
+    def index():
+        return {"status": "WhatsApp Pilates Bot is running", "webhook": "/webhook"}, 200
+
+    @app.route("/webhook", methods=["POST"])
+    def webhook():
+        """Handle incoming webhooks from 2chat"""
+        if not request.is_json:
+            logger.error("Webhook received non-JSON data")
+            return {"error": "Expected JSON"}, 400
+        
+        try:
+            data = request.get_json()
+            logger.info(f"Received webhook: {data}")
+            
+            # Process webhook with bot instance
+            if bot_instance:
+                bot_instance.process_webhook_message(data)
+            else:
+                logger.error("Bot instance not initialized")
+                return {"error": "Bot not ready"}, 500
+            
+            return {"status": "success"}, 200
+            
+        except Exception as e:
+            logger.error(f"Error processing webhook: {e}")
+            return {"error": "Internal server error"}, 500
+
+    return app
+
+def main():
+    """Main function to run the bot with Flask webhook"""
+    global bot_instance
+    
+    # Load configuration
+    TWOCHAT_API_KEY = config.TWOCHAT_API_KEY
+    GEMINI_API_KEY = config.GEMINI_API_KEY
+    BOT_NUMBER = config.BOT_NUMBER
+    NGROK_TOKEN = config.NGROK_TOKEN
+    
+    if not GEMINI_API_KEY:
+        logger.error("Please set your Gemini API key in the GEMINI_API_KEY environment variable or config.py")
+        return
+    
+    if not TWOCHAT_API_KEY:
+        logger.error("Please set your 2Chat API key in the TWOCHAT_API_KEY environment variable or config.py")
+        return
+    
+    if not NGROK_TOKEN:
+        logger.error("Please set your ngrok auth token in the NGROK_TOKEN environment variable or config.py")
+        return
+    
+    # Create bot instance
+    bot_instance = WhatsAppPilatesBot(
         api_key=TWOCHAT_API_KEY,
         gemini_api_key=GEMINI_API_KEY,
         bot_number=BOT_NUMBER
     )
-
-print(bot_instance.find_pilates_groups())
-
-
-
-
-# Global bot instance
-# bot_instance = None
-
-# def create_app():
-#     """Create and configure Flask app"""
-#     app = Flask(__name__)
     
-#     @app.route("/", methods=["GET"])
-#     def index():
-#         return {"status": "WhatsApp Pilates Bot is running", "webhook": "/webhook"}, 200
-
-#     @app.route("/webhook", methods=["POST"])
-#     def webhook():
-#         """Handle incoming webhooks from 2chat"""
-#         if not request.is_json:
-#             logger.error("Webhook received non-JSON data")
-#             return {"error": "Expected JSON"}, 400
+    # Create Flask app
+    app = create_app()
+    
+    try:
+        # Start scheduler in background thread
+        scheduler_thread = threading.Thread(target=bot_instance.start_scheduler, daemon=True)
+        scheduler_thread.start()
+        logger.info("Scheduler started in background")
         
-#         try:
-#             data = request.get_json()
-#             logger.info(f"Received webhook: {data}")
-            
-#             # Process webhook with bot instance
-#             if bot_instance:
-#                 bot_instance.process_webhook_message(data)
-#             else:
-#                 logger.error("Bot instance not initialized")
-#                 return {"error": "Bot not ready"}, 500
-            
-#             return {"status": "success"}, 200
-            
-#         except Exception as e:
-#             logger.error(f"Error processing webhook: {e}")
-#             return {"error": "Internal server error"}, 500
-
-#     return app
-
-# def main():
-#     """Main function to run the bot with Flask webhook"""
-#     global bot_instance
-    
-#     # Load configuration
-#     TWOCHAT_API_KEY = config.TWOCHAT_API_KEY
-#     GEMINI_API_KEY = config.GEMINI_API_KEY
-#     BOT_NUMBER = config.BOT_NUMBER
-#     NGROK_TOKEN = config.NGROK_TOKEN
-    
-#     if not GEMINI_API_KEY:
-#         logger.error("Please set your Gemini API key in the GEMINI_API_KEY environment variable or config.py")
-#         return
-    
-#     if not TWOCHAT_API_KEY:
-#         logger.error("Please set your 2Chat API key in the TWOCHAT_API_KEY environment variable or config.py")
-#         return
-    
-#     if not NGROK_TOKEN:
-#         logger.error("Please set your ngrok auth token in the NGROK_TOKEN environment variable or config.py")
-#         return
-    
-#     # Create bot instance
-#     bot_instance = WhatsAppPilatesBot(
-#         api_key=TWOCHAT_API_KEY,
-#         gemini_api_key=GEMINI_API_KEY,
-#         bot_number=BOT_NUMBER
-#     )
-    
-#     # Create Flask app
-#     app = create_app()
-    
-#     try:
-#         # Start scheduler in background thread
-#         scheduler_thread = threading.Thread(target=bot_instance.start_scheduler, daemon=True)
-#         scheduler_thread.start()
-#         logger.info("Scheduler started in background")
+        # Start ngrok tunnel
+        ngrok.set_auth_token(NGROK_TOKEN)
+        public_url = ngrok.connect(5000)
+        logger.info(f"ngrok tunnel URL: {public_url}")
+        print(f"🚀 Webhook URL: {public_url}/webhook")
+        print("📝 Configure this URL in your 2chat webhook settings")
         
-#         # Start ngrok tunnel
-#         ngrok.set_auth_token(NGROK_TOKEN)
-#         public_url = ngrok.connect(5000)
-#         logger.info(f"ngrok tunnel URL: {public_url}")
-#         print(f"🚀 Webhook URL: {public_url}/webhook")
-#         print("📝 Configure this URL in your 2chat webhook settings")
+        # Start Flask server
+        logger.info("Starting Flask server on port 5000...")
+        app.run(host='0.0.0.0', port=5000, debug=False)
         
-#         # Start Flask server
-#         logger.info("Starting Flask server on port 5000...")
-#         app.run(host='0.0.0.0', port=5000, debug=False)
-        
-#     except KeyboardInterrupt:
-#         logger.info("Bot stopped by user")
-#     except Exception as e:
-#         logger.error(f"Bot crashed: {e}")
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
+    except Exception as e:
+        logger.error(f"Bot crashed: {e}")
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()
