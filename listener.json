@@ -1,0 +1,42 @@
+{
+    "id": "MSG518a62da-9ce0-4fda-b514-e8c857516f94",
+    "uuid": "MSG518a62da-9ce0-4fda-b514-e8c857516f94",
+    "session_key": "WW-WPN3b492da2-9e12-475c-ac16-847c8c0e98da-120363422348284897@g.us",
+    "message": {
+        "text": "test"
+    },
+    "created_at": "2025-08-15T07:56:11",
+    "_2chat_link": "https://app.2chat.io/live-chat/STEf4bfb03b-de0e-42e2-9a90-cec18f41da85/WW-WPN3b492da2-9e12-475c-ac16-847c8c0e98da-120363422348284897@g.us",
+    "channel_phone_number": "+353873326005",
+    "sent_by": "user",
+    "contact": {
+        "first_name": None,
+        "last_name": None,
+        "profile_pic_url": None,
+        "friendly_name": "Virtual Sport Pilates",
+        "device": None
+    },
+    "participant": {
+        "phone_number": "+19128185591",
+        "device": "web",
+        "pushname": "Dev"
+    },
+    "group": {
+        "uuid": "WAG01907a35-5d69-45d3-b201-b254c89a06cb",
+        "channel_uuid": "WPN3b492da2-9e12-475c-ac16-847c8c0e98da",
+        "wa_group_id": "120363422348284897@g.us",
+        "profile_pic_url": None,
+        "wa_owner_id": "353873326005@c.us",
+        "wa_group_name": "Virtual Sport Pilates",
+        "wa_created_at": "2025-08-14T16:21:28Z",
+        "wa_subject": None,
+        "size": 4,
+        "is_muted": False,
+        "is_read_only": False,
+        "channel_is_owner": True,
+        "created_at": "2025-08-14T16:21:30Z",
+        "updated_at": "2025-08-14T16:21:30Z",
+        "invite_code": "FZAoQkPHbSmCDx3GhzfwDc",
+        "invite_link": "https://chat.whatsapp.com/FZAoQkPHbSmCDx3GhzfwDc"
+    }
+}

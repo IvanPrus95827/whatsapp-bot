@@ -10,6 +10,9 @@ import logging
 import os
 from dataclasses import dataclass
 import config
+from flask import Flask, request
+from pyngrok import ngrok
+import threading
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -26,7 +29,8 @@ class GroupInfo:
 class WeeklyProgress:
     group_uuid: str
     week_start: str
-    completed_members: Set[str]
+    completed_members: Set[str]  # Set of phone numbers for backward compatibility
+    completed_members_info: Dict[str, str]  # Dict mapping phone_number -> pushname
     messages_analyzed: Set[str]
 
 class WhatsAppPilatesBot:
@@ -43,6 +47,7 @@ class WhatsAppPilatesBot:
         self.ireland_tz = pytz.timezone(config.IRELAND_TIMEZONE)
         
         # Weekly progress tracking
+        self.available_groups: List[GroupInfo] = []
         self.weekly_progress: Dict[str, WeeklyProgress] = {}
         
         # Headers for API requests
@@ -62,8 +67,8 @@ class WhatsAppPilatesBot:
         try:
             if not group_created_at:
                 # If no creation date available, assume it's old enough for safety
-                logger.warning("Group creation date not available, assuming it's old enough")
-                return True
+                logger.warning("Group creation date not available.")
+                return False
             
             # Parse group creation date
             if group_created_at.endswith('Z'):
@@ -94,7 +99,7 @@ class WhatsAppPilatesBot:
         """Find all groups containing 'pilates' in their name (case insensitive)"""
         try:
             # Get all groups for the bot number
-            url = f"{self.base_url}/groups"
+            url = f"{self.base_url}/groups/{self.bot_number}"
             response = requests.get(url, headers={'X-User-API-Key': self.api_key})
             
             if response.status_code != 200:
@@ -105,27 +110,27 @@ class WhatsAppPilatesBot:
             pilates_groups = []
             
             for group in groups_data.get('data', []):
-                group_name = group.get('name', '').lower()
+                group_name = group.get('wa_group_name', '').lower()
                 if config.PILATES_KEYWORD.lower() in group_name:
                     # Get group details including participants
-                    group_details = self.get_group_details(group['uuid'])
+                    group_details = self.get_group_details(group['uuid']).get('data', None)
                     if group_details:
-                        group_created_at = group_details.get('created_at', '')
+                        group_created_at = group_details.get('wa_created_at', '')
                         
                         # Check if group is old enough to safely monitor
                         if not self.is_group_old_enough(group_created_at):
-                            logger.info(f"Skipping recently created Pilates group: {group['name']} (created: {group_created_at})")
+                            logger.info(f"Skipping recently created Pilates group: {group['wa_group_name']} (created: {group_created_at})")
                             continue
                         
                         pilates_groups.append(GroupInfo(
                             uuid=group['uuid'],
-                            name=group['name'],
+                            name=group['wa_group_name'],
                             participants=group_details.get('participants', []),
                             created_at=group_created_at
                         ))
                         age_days = (datetime.now(self.ireland_tz) - datetime.fromisoformat(group_created_at.replace('Z', '+00:00')).astimezone(self.ireland_tz)).days if group_created_at else "unknown"
-                        logger.info(f"Found Pilates group: {group['name']} ({group['uuid']}) - Age: {age_days} days")
-            
+                        logger.info(f"Found Pilates group: {group['wa_group_name']} ({group['uuid']}) - Age: {age_days} days")
+                    break
             return pilates_groups
         
         except Exception as e:
@@ -226,59 +231,6 @@ class WhatsAppPilatesBot:
             logger.error(f"Error sending individual message: {e}")
             return False
     
-    def process_group_messages(self, group: GroupInfo):
-        """Process new messages from a group and track weekly progress"""
-        week_start = self.get_current_week_start()
-        
-        # Initialize weekly progress if not exists
-        if group.uuid not in self.weekly_progress:
-            self.weekly_progress[group.uuid] = WeeklyProgress(
-                group_uuid=group.uuid,
-                week_start=week_start,
-                completed_members=set(),
-                messages_analyzed=set()
-            )
-        
-        progress = self.weekly_progress[group.uuid]
-        
-        # Reset if new week
-        if progress.week_start != week_start:
-            progress.week_start = week_start
-            progress.completed_members.clear()
-            progress.messages_analyzed.clear()
-        
-        # Get recent messages
-        messages = self.get_group_messages(group.uuid)
-        
-        for message in messages:
-            message_id = message.get('id', '')
-            sender_number = message.get('from_number', '')
-            message_text = message.get('text', '')
-            message_time = message.get('timestamp', '')
-            
-            # Skip if already analyzed or from bot itself
-            if message_id in progress.messages_analyzed or sender_number == self.bot_number:
-                continue
-            
-            # Check if message is from this week
-            try:
-                msg_datetime = datetime.fromisoformat(message_time.replace('Z', '+00:00'))
-                msg_datetime = msg_datetime.astimezone(self.ireland_tz)
-                week_start_date = datetime.strptime(week_start, '%Y-%m-%d').replace(tzinfo=self.ireland_tz)
-                
-                if msg_datetime < week_start_date:
-                    continue
-            except:
-                # If timestamp parsing fails, assume it's current
-                pass
-            
-            # Analyze message with Gemini
-            if self.analyze_message_with_gemini(message_text):
-                progress.completed_members.add(sender_number)
-                logger.info(f"Member {sender_number} completed weekly plan in group {group.name}")
-            
-            progress.messages_analyzed.add(message_id)
-    
     def saturday_report(self):
         """Send weekly reports on Saturday at 8 AM Ireland time"""
         logger.info("Generating Saturday weekly reports...")
@@ -290,14 +242,32 @@ class WhatsAppPilatesBot:
             if not progress:
                 continue
             
+            # Ensure backward compatibility - add completed_members_info if missing
+            if not hasattr(progress, 'completed_members_info'):
+                progress.completed_members_info = {}
+            
             completed_numbers = progress.completed_members
+            completed_members_info = progress.completed_members_info
             all_participants = {p.get('phone_number', '') for p in group.participants if p.get('phone_number')}
             incomplete_numbers = all_participants - completed_numbers
             
             # Send congratulations to group for completed members
             if completed_numbers:
                 completed_count = len(completed_numbers)
-                group_message = config.GROUP_CONGRATULATIONS_TEMPLATE.format(count=completed_count)
+                
+                # Create list of completed member names for the message
+                completed_names = []
+                for phone_number in completed_numbers:
+                    pushname = completed_members_info.get(phone_number, "Unknown")
+                    completed_names.append(pushname)
+                
+                # Create enhanced group message with names
+                if completed_count <= 5:  # If few members, list their names
+                    names_list = ", ".join(completed_names)
+                    group_message = f"🎉 Well done on training! {names_list} completed their weekly pilates plan this week. Keep up the great work! 💪"
+                else:  # If many members, just show count
+                    group_message = config.GROUP_CONGRATULATIONS_TEMPLATE.format(count=completed_count)
+                
                 self.send_group_message(group.uuid, group_message)
             
             # Send individual reminders to incomplete members
@@ -307,69 +277,254 @@ class WhatsAppPilatesBot:
             
             logger.info(f"Group {group.name}: {len(completed_numbers)} completed, {len(incomplete_numbers)} reminded")
     
-    def monitor_messages(self):
-        """Continuously monitor messages from all Pilates groups"""
-        logger.info("Starting message monitoring...")
-        
-        while True:
+    def process_webhook_message(self, webhook_data: Dict):
+        """Process incoming webhook message from 2chat"""
+        try:
+            # Extract message details from webhook data (matches listener.json format)
+            message_id = webhook_data.get('id', '')
+            message_uuid = webhook_data.get('uuid', '')
+            created_at = webhook_data.get('created_at', '')
+            sent_by = webhook_data.get('sent_by', '')
+            
+            # Get message text
+            message_obj = webhook_data.get('message', {})
+            text_content = message_obj.get('text', '')
+            
+            # Get participant (sender) information
+            participant = webhook_data.get('participant', {})
+            from_number = participant.get('phone_number', '')
+            sender_name = participant.get('pushname', '')
+            
+            # Get group information
+            group_info = webhook_data.get('group', {})
+            group_uuid = group_info.get('uuid', '') if group_info else ''
+            group_name = group_info.get('wa_group_name', '') if group_info else ''
+            group_created_at = group_info.get('wa_created_at', '') if group_info else ''
+            
+            # Get bot's channel phone number
+            channel_phone_number = webhook_data.get('channel_phone_number', '')
+            
+            logger.info(f"Processing webhook message: {message_id} from {from_number} ({sender_name}) in group: {group_name}")
+            
+            if group_uuid not in self.available_groups.keys():
+                logger.info(f"Skipping non-pilates group: {group_name}")
+                return
+
+            # Only process user messages (not bot messages)
+            if sent_by != 'user':
+                logger.info(f"Skipping non-user message, sent_by: {sent_by}")
+                return
+            
+            # Skip if message is from bot itself
+            if from_number == self.bot_number or channel_phone_number == from_number:
+                logger.info("Skipping message from bot itself")
+                return
+            
+            # Only process group messages
+            if not group_uuid or not group_info:
+                logger.info("Skipping non-group message")
+                return
+            
+            # Check if this is a pilates group by name
+            if not group_name or config.PILATES_KEYWORD.lower() not in group_name.lower():
+                logger.info(f"Message not from a pilates group: {group_name}")
+                return
+            
+            # Check if group is old enough (safety feature)
+            if group_created_at and not self.is_group_old_enough(group_created_at):
+                logger.info(f"Skipping message from recently created group: {group_name} (created: {group_created_at})")
+                return
+            
+            # Process the message for completion tracking
+            week_start = self.get_current_week_start()
+            
+            # Initialize weekly progress if not exists
+            if group_uuid not in self.weekly_progress:
+                self.weekly_progress[group_uuid] = WeeklyProgress(
+                    group_uuid=group_uuid,
+                    week_start=week_start,
+                    completed_members=set(),
+                    completed_members_info={},
+                    messages_analyzed=set()
+                )
+            
+            progress = self.weekly_progress[group_uuid]
+            
+            # Ensure backward compatibility - add completed_members_info if missing
+            if not hasattr(progress, 'completed_members_info'):
+                progress.completed_members_info = {}
+            
+            # Reset if new week
+            if progress.week_start != week_start:
+                progress.week_start = week_start
+                progress.completed_members.clear()
+                progress.completed_members_info.clear()
+                progress.messages_analyzed.clear()
+            
+            # Skip if already analyzed
+            if message_id in progress.messages_analyzed:
+                logger.info(f"Message {message_id} already analyzed")
+                return
+
+            if from_number in progress.completed_members:
+                logger.info(f"This user {from_number}:{sender_name} complete his work.")
+                return
+            
+            # Check if message is from this week
             try:
-                pilates_groups = self.find_pilates_groups()
-                
-                for group in pilates_groups:
-                    self.process_group_messages(group)
-                
-                # Sleep for configured interval before next check
-                time.sleep(config.MESSAGE_CHECK_INTERVAL)
-                
+                # Parse timestamp (format: "2025-08-15T07:56:11")
+                if created_at:
+                    if 'Z' in created_at:
+                        msg_datetime = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                    else:
+                        # Add timezone info if missing
+                        msg_datetime = datetime.fromisoformat(created_at)
+                        if msg_datetime.tzinfo is None:
+                            msg_datetime = msg_datetime.replace(tzinfo=pytz.UTC)
+                    
+                    msg_datetime = msg_datetime.astimezone(self.ireland_tz)
+                    week_start_date = datetime.strptime(week_start, '%Y-%m-%d').replace(tzinfo=self.ireland_tz)
+                    
+                    if msg_datetime < week_start_date:
+                        logger.info("Message is from previous week, skipping")
+                        return
             except Exception as e:
-                logger.error(f"Error in message monitoring: {e}")
-                time.sleep(config.ERROR_RETRY_INTERVAL)  # Wait longer if there's an error
+                logger.warning(f"Could not parse timestamp '{created_at}': {e}")
+                # Assume message is current if parsing fails
+                pass
+            
+            # Analyze message with Gemini
+            if text_content and self.analyze_message_with_gemini(text_content):
+                progress.completed_members.add(from_number)
+                progress.completed_members_info[from_number] = sender_name or "Unknown"
+                logger.info(f"Member {from_number} ({sender_name}) completed weekly plan in group {group_name}")
+            
+            progress.messages_analyzed.add(message_id)
+            
+        except Exception as e:
+            logger.error(f"Error processing webhook message: {e}")
+            logger.error(f"Webhook data: {webhook_data}")
     
-    def start_bot(self):
-        """Start the bot with scheduled tasks"""
-        logger.info("Starting WhatsApp Pilates Bot...")
+    def start_scheduler(self):
+        """Start the scheduled tasks in a separate thread"""
+        logger.info("Starting scheduler for weekly reports...")
         
         # Schedule Saturday reports (Ireland timezone)
-        schedule.every().saturday.at(config.SATURDAY_REPORT_TIME).do(self.saturday_report)
+        # schedule.every().saturday.at(config.SATURDAY_REPORT_TIME).do(self.saturday_report)
         
-        # Start message monitoring in a separate thread
-        import threading
-        monitor_thread = threading.Thread(target=self.monitor_messages, daemon=True)
-        monitor_thread.start()
-        
-        # Run scheduler
-        while True:
-            schedule.run_pending()
-            time.sleep(60)  # Check every minute for scheduled tasks
+        # # Run scheduler
+        # while True:
+        #     schedule.run_pending()
+        #     time.sleep(60)  # Check every minute for scheduled tasks
 
-def main():
-    """Main function to run the bot"""
-    # Load configuration
-    TWOCHAT_API_KEY = config.TWOCHAT_API_KEY
-    GEMINI_API_KEY = config.GEMINI_API_KEY
-    BOT_NUMBER = config.BOT_NUMBER
-    
-    if not GEMINI_API_KEY:
-        logger.error("Please set your Gemini API key in the GEMINI_API_KEY environment variable or config.py")
-        return
-    
-    if not TWOCHAT_API_KEY:
-        logger.error("Please set your 2Chat API key in the TWOCHAT_API_KEY environment variable or config.py")
-        return
-    
-    # Create and start the bot
-    bot = WhatsAppPilatesBot(
+# test
+
+TWOCHAT_API_KEY = config.TWOCHAT_API_KEY
+GEMINI_API_KEY = config.GEMINI_API_KEY
+BOT_NUMBER = config.BOT_NUMBER
+NGROK_TOKEN = config.NGROK_TOKEN
+
+bot_instance = WhatsAppPilatesBot(
         api_key=TWOCHAT_API_KEY,
         gemini_api_key=GEMINI_API_KEY,
         bot_number=BOT_NUMBER
     )
-    
-    try:
-        bot.start_bot()
-    except KeyboardInterrupt:
-        logger.info("Bot stopped by user")
-    except Exception as e:
-        logger.error(f"Bot crashed: {e}")
 
-if __name__ == "__main__":
-    main()
+print(bot_instance.find_pilates_groups())
+
+
+
+
+# Global bot instance
+# bot_instance = None
+
+# def create_app():
+#     """Create and configure Flask app"""
+#     app = Flask(__name__)
+    
+#     @app.route("/", methods=["GET"])
+#     def index():
+#         return {"status": "WhatsApp Pilates Bot is running", "webhook": "/webhook"}, 200
+
+#     @app.route("/webhook", methods=["POST"])
+#     def webhook():
+#         """Handle incoming webhooks from 2chat"""
+#         if not request.is_json:
+#             logger.error("Webhook received non-JSON data")
+#             return {"error": "Expected JSON"}, 400
+        
+#         try:
+#             data = request.get_json()
+#             logger.info(f"Received webhook: {data}")
+            
+#             # Process webhook with bot instance
+#             if bot_instance:
+#                 bot_instance.process_webhook_message(data)
+#             else:
+#                 logger.error("Bot instance not initialized")
+#                 return {"error": "Bot not ready"}, 500
+            
+#             return {"status": "success"}, 200
+            
+#         except Exception as e:
+#             logger.error(f"Error processing webhook: {e}")
+#             return {"error": "Internal server error"}, 500
+
+#     return app
+
+# def main():
+#     """Main function to run the bot with Flask webhook"""
+#     global bot_instance
+    
+#     # Load configuration
+#     TWOCHAT_API_KEY = config.TWOCHAT_API_KEY
+#     GEMINI_API_KEY = config.GEMINI_API_KEY
+#     BOT_NUMBER = config.BOT_NUMBER
+#     NGROK_TOKEN = config.NGROK_TOKEN
+    
+#     if not GEMINI_API_KEY:
+#         logger.error("Please set your Gemini API key in the GEMINI_API_KEY environment variable or config.py")
+#         return
+    
+#     if not TWOCHAT_API_KEY:
+#         logger.error("Please set your 2Chat API key in the TWOCHAT_API_KEY environment variable or config.py")
+#         return
+    
+#     if not NGROK_TOKEN:
+#         logger.error("Please set your ngrok auth token in the NGROK_TOKEN environment variable or config.py")
+#         return
+    
+#     # Create bot instance
+#     bot_instance = WhatsAppPilatesBot(
+#         api_key=TWOCHAT_API_KEY,
+#         gemini_api_key=GEMINI_API_KEY,
+#         bot_number=BOT_NUMBER
+#     )
+    
+#     # Create Flask app
+#     app = create_app()
+    
+#     try:
+#         # Start scheduler in background thread
+#         scheduler_thread = threading.Thread(target=bot_instance.start_scheduler, daemon=True)
+#         scheduler_thread.start()
+#         logger.info("Scheduler started in background")
+        
+#         # Start ngrok tunnel
+#         ngrok.set_auth_token(NGROK_TOKEN)
+#         public_url = ngrok.connect(5000)
+#         logger.info(f"ngrok tunnel URL: {public_url}")
+#         print(f"🚀 Webhook URL: {public_url}/webhook")
+#         print("📝 Configure this URL in your 2chat webhook settings")
+        
+#         # Start Flask server
+#         logger.info("Starting Flask server on port 5000...")
+#         app.run(host='0.0.0.0', port=5000, debug=False)
+        
+#     except KeyboardInterrupt:
+#         logger.info("Bot stopped by user")
+#     except Exception as e:
+#         logger.error(f"Bot crashed: {e}")
+
+# if __name__ == "__main__":
+#     main()

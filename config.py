@@ -11,6 +11,7 @@ BOT_NUMBER = os.getenv('BOT_NUMBER')
 
 # Gemini AI Configuration
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')  # Must be set
+NGROK_TOKEN = os.getenv('NGROK_TOKEN', '')
 
 # Bot Settings
 IRELAND_TIMEZONE = 'Europe/Dublin'
@@ -29,16 +30,10 @@ INDIVIDUAL_REMINDER_TEMPLATE = """Hi! I noticed you haven't completed your weekl
 
 # Gemini Analysis Prompt
 GEMINI_ANALYSIS_PROMPT = """
-Analyze this WhatsApp message to determine if the person is indicating they have completed their weekly pilates training plan.
-
-Look for indicators such as:
-- Statements about finishing workouts/exercises
-- Mentions of completing weekly goals/plans
-- References to being done with training for the week
-- Updates about finishing their pilates routine
-- Any positive statements about workout completion
+Analyze this WhatsApp message to determine if that the sender is indicating that he or she has completed the full or single or partial anything training or class.
+Please focus on current week, not the previous weeks or the future one or the entire plan.
 
 Message: "{message_text}"
 
-Respond with only "YES" if the message indicates weekly plan completion, or "NO" if it doesn't.
+Respond with only "YES" or "NO".
 """

@@ -8,6 +8,9 @@ export BOT_NUMBER="+353873326005"
 # Gemini AI Configuration  
 export GEMINI_API_KEY="your-gemini-api-key-here"
 
+# ngrok Configuration
+export NGROK_TOKEN="your-ngrok-auth-token-here"
+
 # Optional: Customize bot behavior
 # export IRELAND_TIMEZONE="Europe/Dublin"
 # export SATURDAY_REPORT_TIME="08:00"
