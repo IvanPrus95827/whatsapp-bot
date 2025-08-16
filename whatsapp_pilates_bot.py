@@ -33,6 +33,13 @@ class WeeklyProgress:
     completed_members_info: Dict[str, str]  # Dict mapping phone_number -> pushname
     messages_analyzed: Set[str]
 
+@dataclass
+class AutoReplyMember:
+    phone_number: str
+    group_uuid: str
+    message_sent: str
+    created_at: str
+
 class WhatsAppPilatesBot:
     def __init__(self, api_key: str, gemini_api_key: str, bot_number: str):
         self.api_key = api_key
@@ -50,6 +57,9 @@ class WhatsAppPilatesBot:
         self.available_groups: List[GroupInfo] = []
         self.weekly_progress: Dict[str, WeeklyProgress] = {}
         
+        # Auto reply members tracking
+        self.auto_reply_members: List[AutoReplyMember] = []
+        
         # Headers for API requests
         self.headers = {
             'X-User-API-Key': self.api_key,
@@ -59,10 +69,12 @@ class WhatsAppPilatesBot:
         # File paths for data persistence
         self.available_groups_file = 'available_groups.json'
         self.weekly_progress_file = 'weekly_progress.json'
+        self.auto_reply_members_file = 'auto_reply_members.json'
         
         # Load existing data on initialization
         self.load_available_groups()
         self.load_weekly_progress()
+        self.load_auto_reply_members()
     
     def save_available_groups(self):
         """Save available_groups to JSON file"""
@@ -163,6 +175,53 @@ class WhatsAppPilatesBot:
         except Exception as e:
             logger.error(f"Error loading weekly_progress: {e}")
             self.weekly_progress = {}
+
+    def save_auto_reply_members(self):
+        """Save auto_reply_members to JSON file"""
+        try:
+            # Convert AutoReplyMember objects to dictionaries
+            members_data = []
+            for member in self.auto_reply_members:
+                members_data.append({
+                    'phone_number': member.phone_number,
+                    'group_uuid': member.group_uuid,
+                    'message_sent': member.message_sent,
+                    'created_at': member.created_at
+                })
+            
+            with open(self.auto_reply_members_file, 'w', encoding='utf-8') as f:
+                json.dump(members_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"Saved {len(members_data)} auto reply members to {self.auto_reply_members_file}")
+            
+        except Exception as e:
+            logger.error(f"Error saving auto_reply_members: {e}")
+    
+    def load_auto_reply_members(self):
+        """Load auto_reply_members from JSON file"""
+        try:
+            if os.path.exists(self.auto_reply_members_file):
+                with open(self.auto_reply_members_file, 'r', encoding='utf-8') as f:
+                    members_data = json.load(f)
+                
+                # Convert dictionaries back to AutoReplyMember objects
+                self.auto_reply_members = []
+                for member_dict in members_data:
+                    member = AutoReplyMember(
+                        phone_number=member_dict.get('phone_number', ''),
+                        group_uuid=member_dict.get('group_uuid', ''),
+                        message_sent=member_dict.get('message_sent', ''),
+                        created_at=member_dict.get('created_at', '')
+                    )
+                    self.auto_reply_members.append(member)
+                
+                logger.info(f"Loaded {len(self.auto_reply_members)} auto reply members from {self.auto_reply_members_file}")
+            else:
+                logger.info(f"No existing {self.auto_reply_members_file} found, starting with empty auto reply members")
+                
+        except Exception as e:
+            logger.error(f"Error loading auto_reply_members: {e}")
+            self.auto_reply_members = []
 
     def get_current_week_start(self) -> str:
         """Get the start of current week (Monday) in Ireland timezone"""
@@ -349,7 +408,8 @@ class WhatsAppPilatesBot:
         logger.info("Generating Saturday weekly reports...")
 
         self.find_pilates_groups()
-
+        self.auto_reply_members = []
+        
         for uuid, progress in self.weekly_progress.items():
             group = None
             
@@ -393,13 +453,38 @@ class WhatsAppPilatesBot:
                 print(group_message)
             
             print("-------------------------------- incompleted members --------------------------------")
-            # Send individual reminders to incomplete members
+            # Send individual reminders to incomplete members and update auto_reply_members
             for phone_number in incomplete_numbers:
                 if phone_number and phone_number != self.bot_number:
+                    # Send reminder message
                     # self.send_individual_message(phone_number, config.INDIVIDUAL_REMINDER_TEMPLATE)
                     print(phone_number)
+                    
+                    # Add to auto_reply_members for future auto-replies
+                    # Check if member is already in auto_reply_members
+                    existing_member = None
+                    for member in self.auto_reply_members:
+                        if member.phone_number == phone_number and member.group_uuid == group.uuid:
+                            existing_member = member
+                            break
+                    
+                    # If not already in list, add them
+                    if not existing_member:
+                        current_time = datetime.now(self.ireland_tz).isoformat()
+                        auto_reply_member = AutoReplyMember(
+                            phone_number=phone_number,
+                            group_uuid=group.uuid,
+                            message_sent=config.INDIVIDUAL_REMINDER_TEMPLATE,
+                            created_at=current_time
+                        )
+                        self.auto_reply_members.append(auto_reply_member)
+                        logger.info(f"Added {phone_number} to auto_reply_members for group {group.name}")
             
             logger.info(f"Group {group.name}: {len(completed_numbers)} completed, {len(incomplete_numbers)} reminded")
+        
+        # Save updated auto_reply_members after processing all groups
+        self.save_auto_reply_members()
+        logger.info(f"Updated auto_reply_members list with {len(self.auto_reply_members)} members")
     
     def process_webhook_message(self, webhook_data: Dict):
         """Process incoming webhook message from 2chat"""
@@ -539,6 +624,97 @@ class WhatsAppPilatesBot:
             logger.error(f"Error processing webhook message: {e}")
             logger.error(f"Webhook data: {webhook_data}")
     
+    def process_private_message(self, webhook_data: Dict):
+        """Process incoming private message from 2chat"""
+        try:
+            # Extract message details from webhook data
+            message_id = webhook_data.get('id', '')
+            message_uuid = webhook_data.get('uuid', '')
+            sent_by = webhook_data.get('sent_by', '')
+            
+            # Get message text
+            message_obj = webhook_data.get('message', {})
+            text_content = message_obj.get('text', '')
+            
+            # Get sender information
+            from_number =webhook_data.get('remote_phone_number', '')
+            sender_name = webhook_data.get('contact', {}).get('first_name', '') or webhook_data.get('contact', {}).get('last_name', '') or webhook_data.get('contact', {}).get('friendly_name', '')
+            
+            # Get bot's channel phone number
+            channel_phone_number = webhook_data.get('channel_phone_number', '')
+            
+            logger.info(f"Processing private message: {message_id} from {from_number} ({sender_name})")
+            
+            # Only process user messages (not bot messages)
+            if sent_by != 'user':
+                logger.info(f"Skipping non-user message, sent_by: {sent_by}")
+                return
+            
+            # Skip if message is from bot itself
+            if from_number == self.bot_number or channel_phone_number == from_number:
+                logger.info("Skipping message from bot itself")
+                return
+            
+            # Check if this sender is in auto_reply_members
+            auto_reply_member = None
+            for member in self.auto_reply_members:
+                if member.phone_number == from_number:
+                    auto_reply_member = member
+                    break
+            
+            if not auto_reply_member:
+                logger.info(f"User {from_number} not in auto_reply_members list")
+                return
+            
+            # Generate auto reply using Gemini
+            reply_message = self.generate_auto_reply(auto_reply_member.message_sent, text_content, sender_name)
+            
+            if reply_message:
+                # Send the auto reply
+                print(reply_message)
+                # success = self.send_individual_message(from_number, reply_message)
+                
+                # if success:
+                #     logger.info(f"Auto reply sent to {from_number} ({sender_name})")
+                    
+                #     # Remove member from auto_reply_members after successful reply
+                #     self.auto_reply_members.remove(auto_reply_member)
+                #     self.save_auto_reply_members()
+                #     logger.info(f"Removed {from_number} from auto_reply_members")
+                # else:
+                #     logger.error(f"Failed to send auto reply to {from_number}")
+            else:
+                logger.error(f"Failed to generate auto reply for {from_number}")
+                
+        except Exception as e:
+            logger.error(f"Error processing private message: {e}")
+            logger.error(f"Webhook data: {webhook_data}")
+    
+    def generate_auto_reply(self, original_message: str, user_response: str, user_name: str) -> str:
+        """Generate auto reply using Gemini based on original message and user response"""
+        try:
+            prompt = f"""
+You are a friendly pilates instructor bot. You previously sent this message to a member who didn't complete their weekly pilates plan:
+"{original_message}"
+
+The member ({user_name}) has now replied with:
+"{user_response}"
+
+Generate a supportive, encouraging, and personalized response to their message. Keep it friendly and motivating. Consider their response and provide appropriate support or encouragement for their pilates journey.
+
+Response should be in a conversational tone and not too long (2-3 sentences maximum).
+"""
+            
+            response = self.model.generate_content(prompt)
+            reply = response.text.strip()
+            
+            logger.info(f"Generated auto reply for {user_name}: {reply[:50]}...")
+            return reply
+            
+        except Exception as e:
+            logger.error(f"Error generating auto reply with Gemini: {e}")
+            return ""
+    
     def start_scheduler(self):
         """Start the scheduled tasks in a separate thread"""
         logger.info("Starting scheduler for weekly reports...")
@@ -587,6 +763,30 @@ def create_app():
             logger.error(f"Error processing webhook: {e}")
             return {"error": "Internal server error"}, 500
 
+    @app.route("/receive_chat_message", methods=["POST"])
+    def receive_chat_message():
+        """Handle incoming private chat messages from 2chat"""
+        if not request.is_json:
+            logger.error("Chat webhook received non-JSON data")
+            return {"error": "Expected JSON"}, 400
+        
+        try:
+            data = request.get_json()
+            logger.info(f"Received chat message webhook: {data}")
+            
+            # Process chat message with bot instance
+            if bot_instance:
+                bot_instance.process_private_message(data)
+            else:
+                logger.error("Bot instance not initialized")
+                return {"error": "Bot not ready"}, 500
+            
+            return {"status": "success"}, 200
+            
+        except Exception as e:
+            logger.error(f"Error processing chat message webhook: {e}")
+            return {"error": "Internal server error"}, 500
+
     return app
 
 def main():
@@ -631,8 +831,11 @@ def main():
         ngrok.set_auth_token(NGROK_TOKEN)
         public_url = ngrok.connect(5000)
         logger.info(f"ngrok tunnel URL: {public_url}")
-        print(f"🚀 Webhook URL: {public_url}/webhook")
-        print("📝 Configure this URL in your 2chat webhook settings")
+        print(f"🚀 Group Messages Webhook URL: {public_url}/webhook")
+        print(f"🚀 Private Messages Webhook URL: {public_url}/receive_chat_message")
+        print("📝 Configure these URLs in your 2chat webhook settings")
+        print("   - Use /webhook for group message events")
+        print("   - Use /receive_chat_message for private chat message events")
         
         # Start Flask server
         logger.info("Starting Flask server on port 5000...")
