@@ -75,6 +75,10 @@ class WhatsAppPilatesBot:
         self.load_available_groups()
         self.load_weekly_progress()
         self.load_auto_reply_members()
+
+        # webhook uuids
+        self.group_webhook_uuid = ""
+        self.private_webhook_uuid = ""
     
     def save_available_groups(self):
         """Save available_groups to JSON file"""
@@ -444,7 +448,8 @@ class WhatsAppPilatesBot:
                 # Create enhanced group message with names
                 # if completed_count <= 5:  # If few members, list their names
                 names_list = ", ".join(completed_names)
-                group_message = f"🎉 Well done on training! {names_list} completed their weekly pilates plan this week. Keep up the great work! 💪"
+                group_message = f"""🎉 Well done on training!
+{names_list} completed their weekly pilates plan this week. Keep up the great work! 💪"""
                 # else:  # If many members, just show count
                     # group_message = config.GROUP_CONGRATULATIONS_TEMPLATE.format(count=completed_count)
                 
@@ -715,6 +720,97 @@ Response should be in a conversational tone and not too long (2-3 sentences maxi
             logger.error(f"Error generating auto reply with Gemini: {e}")
             return ""
     
+    def subscribe_webhook(self, webhook_url: str, event_type: str = "whatsapp.message.received") -> bool:
+        """Subscribe to webhook events on 2chat"""
+        try:
+            url = f"https://api.p.2chat.io/open/webhooks/subscribe/{event_type}"
+            
+            payload = json.dumps({
+                "hook_url": webhook_url,
+                "on_number": self.bot_number
+            })
+            
+            response = requests.post(url, headers=self.headers, data=payload)
+            
+            if response.status_code == 200 or response.status_code == 201:
+                logger.info(f"Successfully subscribed to {event_type} webhook: {webhook_url}")
+                return response.json().get('data', {}).get('uuid', '')
+            else:
+                logger.error(f"Failed to subscribe to webhook: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error subscribing to webhook: {e}")
+            return None
+    
+    def unsubscribe_webhook(self, uuid: str) -> bool:
+        """Unsubscribe from webhook events on 2chat"""
+        try:
+            url = f"https://api.p.2chat.io/open/webhooks/{uuid}"
+            
+            payload = ""
+            response = requests.delete(url, headers=self.headers, data=payload)
+            
+            if response.status_code == 200 or response.status_code == 204:
+                logger.info(f"Successfully unsubscribed webhook: {uuid}")
+                return True
+            else:
+                logger.error(f"Failed to unsubscribe from webhook: {response.status_code} - {response.text}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error unsubscribing from webhook: {e}")
+            return False
+    
+    def setup_webhooks(self, base_url: str) -> bool:
+        """Setup all required webhooks for the bot"""
+        try:
+            logger.info("Setting up webhooks...")
+            
+            # Subscribe to group message events
+            group_webhook_url = f"{base_url}/webhook"
+            group_success = self.subscribe_webhook(group_webhook_url, "whatsapp.group.message.received")
+            
+            # Subscribe to private message events  
+            private_webhook_url = f"{base_url}/receive_chat_message"
+            private_success = self.subscribe_webhook(private_webhook_url, "whatsapp.message.received")
+            
+            if group_success and private_success:
+                logger.info("All webhooks setup successfully!")
+                self.group_webhook_uuid = group_success
+                self.private_webhook_uuid = private_success
+                print(self.group_webhook_uuid)
+                print(self.private_webhook_uuid)
+                return True
+            else:
+                logger.warning("Some webhooks failed to setup")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error setting up webhooks: {e}")
+            return False
+            
+    def unetup_webhooks(self) -> bool:
+        try:
+            logger.info("Unsubscribing webhooks...")
+            
+            # Subscribe to group message events
+            group_success = self.unsubscribe_webhook(self.group_webhook_uuid)
+            
+            # Subscribe to private message events  
+            private_success = self.unsubscribe_webhook(self.private_webhook_uuid)
+            
+            if group_success and private_success:
+                logger.info("All webhooks unsubscribed successfully!")
+                return True
+            else:
+                logger.warning("Some webhooks failed to unsubscribe")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error unsubscribing webhooks: {e}")
+            return False
+    
     def start_scheduler(self):
         """Start the scheduled tasks in a separate thread"""
         logger.info("Starting scheduler for weekly reports...")
@@ -829,13 +925,22 @@ def main():
         
         # Start ngrok tunnel
         ngrok.set_auth_token(NGROK_TOKEN)
-        public_url = ngrok.connect(5000)
+        public_url = ngrok.connect(5000).public_url
         logger.info(f"ngrok tunnel URL: {public_url}")
         print(f"🚀 Group Messages Webhook URL: {public_url}/webhook")
         print(f"🚀 Private Messages Webhook URL: {public_url}/receive_chat_message")
-        print("📝 Configure these URLs in your 2chat webhook settings")
-        print("   - Use /webhook for group message events")
-        print("   - Use /receive_chat_message for private chat message events")
+        
+        # Automatically setup webhooks
+        print("🔧 Setting up webhooks automatically...")
+        webhook_success = bot_instance.setup_webhooks(str(public_url))
+        
+        if webhook_success:
+            print("✅ Webhooks configured successfully!")
+        else:
+            print("❌ Some webhooks failed to configure. You may need to set them up manually:")
+            print("📝 Manual configuration URLs:")
+            print("   - Use /webhook for group message events")
+            print("   - Use /receive_chat_message for private chat message events")
         
         # Start Flask server
         logger.info("Starting Flask server on port 5000...")
@@ -843,6 +948,7 @@ def main():
         
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
+        bot_instance.unetup_webhooks(str(public_url))   
     except Exception as e:
         logger.error(f"Bot crashed: {e}")
 
