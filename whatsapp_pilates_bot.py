@@ -452,7 +452,7 @@ class WhatsAppPilatesBot:
 {names_list} completed their weekly pilates plan this week. Keep up the great work! 💪"""
                 # else:  # If many members, just show count
                     # group_message = config.GROUP_CONGRATULATIONS_TEMPLATE.format(count=completed_count)
-                
+                group_message = self.generate_varied_message(group_message)
                 #### send messages to group ####
                 # self.send_group_message(group.uuid, group_message)
                 print(group_message)
@@ -462,8 +462,9 @@ class WhatsAppPilatesBot:
             for phone_number in incomplete_numbers:
                 if phone_number and phone_number != self.bot_number:
                     # Send reminder message
-                    # self.send_individual_message(phone_number, config.INDIVIDUAL_REMINDER_TEMPLATE)
-                    print(phone_number)
+                    message = self.generate_varied_message(config.INDIVIDUAL_REMINDER_TEMPLATE)
+                    # self.send_individual_message(phone_number, message)
+                    print(phone_number, message)
                     
                     # Add to auto_reply_members for future auto-replies
                     # Check if member is already in auto_reply_members
@@ -488,6 +489,8 @@ class WhatsAppPilatesBot:
             logger.info(f"Group {group.name}: {len(completed_numbers)} completed, {len(incomplete_numbers)} reminded")
         
         # Save updated auto_reply_members after processing all groups
+        self.weekly_progress = {}
+        self.save_weekly_progress()
         self.save_auto_reply_members()
         logger.info(f"Updated auto_reply_members list with {len(self.auto_reply_members)} members")
     
@@ -720,6 +723,18 @@ Response should be in a conversational tone and not too long (2-3 sentences maxi
             logger.error(f"Error generating auto reply with Gemini: {e}")
             return ""
     
+    def generate_varied_message(self, message: str) -> str:
+        prompt = f"""Give me one similar message related to this, not change names. It's about pilates class training. Only answer the message, no other text.
+Message: '{message}'"""
+
+        try:
+            response = self.model.generate_content(prompt)
+            reply = response.text.strip()
+            return reply
+        except Exception as e:
+            logger.error(f"Error generating varied message with Gemini: {e}")
+            return message
+
     def subscribe_webhook(self, webhook_url: str, event_type: str = "whatsapp.message.received") -> bool:
         """Subscribe to webhook events on 2chat"""
         try:
@@ -811,9 +826,20 @@ Response should be in a conversational tone and not too long (2-3 sentences maxi
             logger.error(f"Error unsubscribing webhooks: {e}")
             return False
     
+    def init_weekly_progress(self):
+        """Initialize/reset weekly progress on Monday at midnight"""
+        logger.info("Initializing weekly progress for new week...")
+        
+        # Reset weekly progress for all groups
+        self.weekly_progress = {}
+        self.save_weekly_progress()
+
     def start_scheduler(self):
         """Start the scheduled tasks in a separate thread"""
-        logger.info("Starting scheduler for weekly reports...")
+        logger.info("Starting scheduler for weekly reports and progress initialization...")
+        
+        # Schedule Monday midnight progress initialization (Ireland timezone)
+        schedule.every().monday.at("00:00").do(self.init_weekly_progress)
         
         # Schedule Saturday reports (Ireland timezone)
         schedule.every().saturday.at(config.SATURDAY_REPORT_TIME).do(self.saturday_report)

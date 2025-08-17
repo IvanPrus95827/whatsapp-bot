@@ -26,7 +26,7 @@ MIN_GROUP_AGE_DAYS = 30  # Minimum group age in days to avoid newly created grou
 # Message Templates
 GROUP_CONGRATULATIONS_TEMPLATE = "🎉 Well done on training! {count} members completed their weekly pilates plan this week. Keep up the great work! 💪"
 
-INDIVIDUAL_REMINDER_TEMPLATE = """Hi! I noticed you haven't completed your weekly pilates plan yet. Remember that consistent training is key to achieving your fitness goals. Why not take some time today to catch up? Your body will thank you! 🧘‍♀️💪"""
+INDIVIDUAL_REMINDER_TEMPLATE = """Hi! I'm Eoin, your coach! I noticed you haven't completed your weekly pilates plan yet. Remember that consistent training is key to achieving your fitness goals. Why not take some time today to catch up? Your body will thank you! 🧘‍♀️💪"""
 
 # Gemini Analysis Prompt
 GEMINI_ANALYSIS_PROMPT = """
