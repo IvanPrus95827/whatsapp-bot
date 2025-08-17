@@ -76,6 +76,9 @@ class WhatsAppPilatesBot:
         self.load_weekly_progress()
         self.load_auto_reply_members()
 
+        if self.available_groups == []:
+            self.find_pilates_groups()
+
         # webhook uuids
         self.group_webhook_uuid = ""
         self.private_webhook_uuid = ""
@@ -122,7 +125,6 @@ class WhatsAppPilatesBot:
                 logger.info(f"Loaded {len(self.available_groups)} groups from {self.available_groups_file}")
             else:
                 logger.info(f"No existing {self.available_groups_file} found, starting with empty groups")
-                
         except Exception as e:
             logger.error(f"Error loading available_groups: {e}")
             self.available_groups = []
