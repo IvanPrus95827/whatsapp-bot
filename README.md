@@ -1,313 +1,293 @@
-# WhatsApp Pilates Bot
+# WhatsApp Pilates Bot 🧘‍♀️🤖
 
-An AI-powered WhatsApp bot that receives real-time messages from Pilates group chats and tracks weekly training completion using Google's Gemini AI, 2Chat API, Flask webhooks, and ngrok tunneling.
+An intelligent WhatsApp bot that automatically tracks weekly pilates training completion in group chats and sends personalized encouragement messages using AI.
 
-## Overview
+## 🌟 Features
 
-This version of the bot uses Flask webhooks and ngrok to receive messages from 2Chat in real-time, rather than periodic polling. This approach is more efficient and provides better real-time performance.
+### 📊 **Automated Progress Tracking**
+- Monitors WhatsApp group messages for pilates completion indicators
+- Uses Google Gemini AI to analyze messages and detect training completion
+- Tracks weekly progress for all group members
+- Automatically resets progress every Monday at midnight (Ireland timezone)
 
-## Key Changes
+### 🎉 **Smart Messaging System**
+- **AI-Generated Varied Messages**: Every message is unique using Gemini AI
+- **Group Congratulations**: Celebrates members who completed their weekly training
+- **Individual Reminders**: Sends personalized reminders to members who haven't completed training
+- **Auto-Reply System**: Responds to members who reply to reminder messages
 
-✅ **From Listener to Webhook**: Uses Flask to receive real-time messages  
-✅ **ngrok Integration**: Automatically creates public tunnel  
-✅ **Maintained Scheduled Tasks**: Saturday reporting functionality remains unchanged  
-✅ **Real-time Processing**: Messages processed immediately with no delay  
+### ⏰ **Intelligent Scheduling**
+- **Monday 00:00**: Automatic weekly progress reset
+- **Saturday 18:00**: Weekly reports with congratulations and reminders
+- **Real-time**: Message analysis and progress tracking via webhooks
 
-## Features
+### 🛡️ **Safety Features**
+- Only monitors groups containing "pilates" in the name
+- Skips recently created groups (configurable minimum age)
+- Fallback to static messages if AI generation fails
+- Comprehensive error handling and logging
 
-- **Real-time Webhook Processing**: Receives instant messages from Pilates groups via 2Chat webhooks
-- **Automatic Group Detection**: Finds all WhatsApp groups containing "pilates" in their name (case insensitive)
-- **Group Age Safety Filter**: Only monitors groups older than 30 days to prevent account bans from interacting with newly created groups
-- **AI Message Analysis**: Uses Google Gemini AI to analyze messages and detect when members complete their weekly training
-- **Weekly Tracking**: Tracks completion status for each member per week
-- **Saturday Reports**: Automatically sends reports every Saturday at 8 AM (Ireland timezone)
-- **Group Congratulations**: Sends encouraging messages to groups for completed members
-- **Individual Reminders**: Sends private reminders to members who haven't completed their weekly plan
-- **ngrok Tunneling**: Automatically exposes local webhook endpoint to receive 2Chat messages
+## 🚀 Quick Start
 
-## Requirements
-
-- Python 3.7+
-- 2Chat API account and API key
+### Prerequisites
+- Python 3.8+
+- 2Chat WhatsApp API account
 - Google Gemini AI API key
-- WhatsApp Business account connected to 2Chat
-- ngrok account and auth token
+- ngrok account for webhook tunneling
 
-## New Dependencies
+### Installation
 
-- `flask==3.0.0` - Web framework for webhook handling
-- `pyngrok==6.0.0` - ngrok tunnel integration
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd whatsapp-bot
+   ```
 
-## Installation
-
-1. Clone or download this repository
-2. Install dependencies:
+2. **Install dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-3. Set up your API keys:
-   - Get your 2Chat API key from [2Chat.io](https://2chat.io)
-   - Get your Gemini API key from [Google AI Studio](https://aistudio.google.com)
-   - Sign up for ngrok and get your auth token from [ngrok.com](https://ngrok.com)
-
-4. Configure environment variables:
+3. **Environment Setup**
    
-   Copy the environment template:
-   ```bash
-   cp env_template.txt .env
-   ```
-   
-   Edit the `.env` file with your API keys:
-   ```bash
+   Create a `.env` file in the project root:
+   ```env
    # 2Chat API Configuration
-   export TWOCHAT_API_KEY="your-2chat-api-key"
-   export BOT_NUMBER="your-bot-phone-number"
+   TWOCHAT_API_KEY=your_2chat_api_key_here
+   BOT_NUMBER=your_whatsapp_bot_number_here
    
-   # Gemini AI Configuration
-   export GEMINI_API_KEY="your-gemini-api-key"
-   ```
+   # AI Configuration
+   GEMINI_API_KEY=your_gemini_api_key_here
    
-   Load environment variables:
-   ```bash
-   source .env
+   # ngrok Configuration
+   NGROK_TOKEN=your_ngrok_auth_token_here
+   
+   # Optional: Custom report time (default: 18:00)
+   SATURDAY_REPORT_TIME=18:00
    ```
 
-## Usage
-
-1. Ensure your WhatsApp number is connected to 2Chat
-2. Make sure the bot number is added to all Pilates groups you want to monitor
-3. Run the bot:
+4. **Run the bot**
    ```bash
    python whatsapp_pilates_bot.py
    ```
 
-When starting, you'll see:
-```
-🚀 Webhook URL: https://xxxxx.ngrok.io/webhook
-📝 Configure this URL in your 2chat webhook settings
-```
+## ⚙️ Configuration
 
-## Configure 2Chat Webhook
+### Environment Variables
 
-1. Login to 2Chat console
-2. Go to API Settings → Webhook Configuration
-3. Set Webhook URL to the displayed ngrok URL (e.g., `https://xxxxx.ngrok.io/webhook`)
-4. Select events to receive: `message_received`
-5. Save configuration
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `TWOCHAT_API_KEY` | Your 2Chat API key | ✅ | - |
+| `BOT_NUMBER` | WhatsApp bot phone number | ✅ | - |
+| `GEMINI_API_KEY` | Google Gemini AI API key | ✅ | - |
+| `NGROK_TOKEN` | ngrok authentication token | ✅ | - |
+| `SATURDAY_REPORT_TIME` | Weekly report time (HH:MM) | ❌ | 18:00 |
 
-The bot will:
-- Receive real-time messages from all Pilates groups via webhooks
-- Use AI to analyze messages for weekly plan completion
-- Send automatic reports every Saturday at 8 AM Ireland time
+### Bot Settings (config.py)
 
-## Safety Features
+```python
+# Timezone
+IRELAND_TIMEZONE = 'Europe/Dublin'
 
-### Account Protection
-To prevent your WhatsApp account from being banned, the bot includes several safety measures:
+# Group Detection
+PILATES_KEYWORD = 'pilates'  # Groups must contain this word
+MIN_GROUP_AGE_DAYS = 30     # Skip groups newer than this
 
-1. **Group Age Filter**: Only monitors groups that are **30+ days old**
-   - Newly created groups are automatically skipped
-   - Prevents triggering WhatsApp's spam detection systems
-   - Configurable via `MIN_GROUP_AGE_DAYS` in config.py
-
-2. **Conservative Monitoring**: 
-   - 30-second intervals between message checks (not too frequent)
-   - Proper error handling with retry delays
-   - Only monitors groups with "pilates" keyword
-
-3. **Selective Engagement**:
-   - Only sends messages to established groups
-   - Individual reminders are sent privately
-   - No bulk messaging or spam-like behavior
-
-### Logs and Transparency
-The bot provides detailed logging showing:
-- Which groups are being monitored vs. skipped
-- Group ages and creation dates
-- AI analysis results
-- Message sending success/failure
-
-**Example log output:**
-```
-Found Pilates group: Weekly Pilates Class (WAG123...) - Age: 45 days
-Skipping recently created Pilates group: New Pilates Group (created: 2024-01-15)
-Gemini analysis for 'Finished my workout today...': YES
+# Message Templates (used as base for AI variation)
+GROUP_CONGRATULATIONS_TEMPLATE = "🎉 Well done on training! ..."
+INDIVIDUAL_REMINDER_TEMPLATE = "Hi! I'm Eoin, your coach! ..."
 ```
 
-## How It Works
+## 🏗️ Architecture
 
-### Real-time Message Processing
-- Receives messages from Pilates groups via 2Chat webhooks
-- Uses Gemini AI to analyze message content
-- Automatically identifies members who complete training
+### Core Components
 
-### Saturday Reports (Unchanged)
-- Every Saturday at 8 AM (Ireland time) sends reports
-- Congratulates members who completed training
-- Reminds incomplete members
+1. **WhatsAppPilatesBot**: Main bot class handling all functionality
+2. **Webhook Server**: Flask app receiving real-time messages
+3. **AI Message Generator**: Creates varied messages using Gemini AI
+4. **Scheduler**: Manages weekly tasks and progress resets
+5. **Data Persistence**: JSON files for groups, progress, and auto-replies
 
-### Intelligent Filtering
-- Only processes Pilates-related groups
-- Filters out bot's own messages
-- Only analyzes messages from current week
+### Data Flow
+
+```
+WhatsApp Message → Webhook → AI Analysis → Progress Update → Weekly Report → AI-Generated Response
+```
+
+### File Structure
+
+```
+whatsapp-bot/
+├── whatsapp_pilates_bot.py    # Main bot implementation
+├── config.py                  # Configuration settings
+├── requirements.txt           # Python dependencies
+├── setup.py                   # Package setup
+├── .env                       # Environment variables (not in git)
+├── .gitignore                 # Git ignore rules
+└── README.md                  # This file
+
+# Generated during runtime:
+├── available_groups.json      # Discovered pilates groups
+├── weekly_progress.json       # Current week's progress
+└── auto_reply_members.json    # Members awaiting auto-replies
+```
+
+## 🤖 AI Integration
 
 ### Message Analysis
-The bot uses Google's Gemini AI to analyze messages and determine if someone has completed their weekly training. It looks for patterns like:
-- "Finished my workout today"
-- "Completed this week's plan"
-- "Done with training for the week"
-- And many other variations
+The bot uses Google Gemini AI to analyze incoming messages and determine if they indicate training completion:
 
-### Weekly Tracking
-- Each week starts on Monday (Ireland timezone)
-- The bot tracks which members have indicated completion
-- Progress resets every week automatically
+```python
+GEMINI_ANALYSIS_PROMPT = """
+Analyze this WhatsApp message to determine if the sender is indicating 
+that he or she has completed the full or single or partial anything 
+training or class for the current week.
 
-### Saturday Reports
-Every Saturday at 8 AM (Ireland time), the bot:
-1. **Group Messages**: Sends congratulations to groups mentioning how many members completed their weekly plan
-2. **Individual Reminders**: Sends private messages to members who haven't completed their plan, encouraging them to catch up
+Message: "{message_text}"
 
-## Configuration
+Respond with only "YES" or "NO".
+"""
+```
 
-You can modify settings in `config.py`:
+### Varied Message Generation
+Every outgoing message is made unique through AI:
 
-### Safety Settings
-- `MIN_GROUP_AGE_DAYS = 30` - Minimum group age in days before monitoring (prevents account bans)
+```python
+def generate_varied_message(self, message: str) -> str:
+    """Generate a varied version of a message using AI"""
+    prompt = f"""Give me one similar message related to this, not change names. 
+    It's about pilates class training. Only answer the message, no other text.
+    Message: '{message}'"""
+```
 
-### Bot Behavior
-- `MESSAGE_CHECK_INTERVAL = 30` - How often to check for new messages (seconds)
-- `ERROR_RETRY_INTERVAL = 60` - Wait time after errors (seconds)
-- `SATURDAY_REPORT_TIME = "08:00"` - Time for weekly reports (Ireland timezone)
+## 📅 Weekly Cycle
 
-### Group Detection
-- `PILATES_KEYWORD = 'pilates'` - Keyword to identify relevant groups (case insensitive)
+### Monday 00:00 (Midnight) - Ireland Time
+- ✨ **Weekly Progress Reset**
+- 🔍 **Group Discovery** (finds new pilates groups)
+- 📊 **Initialize Tracking** for all groups
 
-### Message Templates
-- `GROUP_CONGRATULATIONS_TEMPLATE` - Message sent to groups for completed members
-- `INDIVIDUAL_REMINDER_TEMPLATE` - Private reminder for incomplete members
-- `GEMINI_ANALYSIS_PROMPT` - AI prompt for analyzing training completion messages
+### Throughout the Week
+- 👂 **Real-time Message Monitoring**
+- 🤖 **AI Message Analysis**
+- 📈 **Progress Tracking**
+- 💬 **Auto-reply Management**
 
-### Timezone
-- `IRELAND_TIMEZONE = 'Europe/Dublin'` - Timezone for scheduling and date calculations
+### Saturday 18:00 - Ireland Time
+- 🎉 **Group Congratulations** (AI-generated, unique each time)
+- 📨 **Individual Reminders** (AI-generated, personalized)
+- 🔄 **Auto-reply Setup** for incomplete members
 
-## API Requirements
+## 🔧 API Integration
 
-### 2Chat API
-- Account with WhatsApp Business integration
-- API key with permissions for:
-  - Reading group messages
-  - Sending group messages
-  - Sending individual messages
-  - Accessing group member lists
+### 2Chat WhatsApp API
+- **Group Management**: Discover and monitor pilates groups
+- **Message Sending**: Send group and individual messages
+- **Webhook Events**: Real-time message reception
 
 ### Google Gemini AI
-- API key from Google AI Studio
-- Access to Gemini Pro model
+- **Message Analysis**: Detect training completion
+- **Content Generation**: Create varied, natural messages
+- **Auto-replies**: Generate contextual responses
 
-## API Endpoints
+### ngrok Tunneling
+- **Webhook Exposure**: Make local Flask server publicly accessible
+- **Automatic Setup**: Bot configures webhooks automatically
 
-- `GET /`: Health check, returns bot status
-- `POST /webhook`: Webhook endpoint for receiving 2Chat messages
+## 🛠️ Development
 
-## Security Notes
+### Running in Development Mode
 
-- Store API keys as environment variables in production
-- Ensure your 2Chat account has appropriate permissions
-- The bot only reads messages from groups containing "pilates" in the name
-- **Safety Feature**: Bot automatically skips groups created less than 30 days ago to prevent account bans
-- Individual reminder messages are sent privately
-- ngrok tunnels are public - ensure webhook endpoint security
-- Don't expose API keys in logs
-- Regularly rotate authentication tokens
+```bash
+# Enable debug mode
+export FLASK_ENV=development
 
-## Advantages Over Listener Version
-
-1. **Real-time**: Messages processed immediately with no delay
-2. **Efficiency**: No need for periodic API polling
-3. **Reliability**: Event-driven, won't miss messages
-4. **Scalability**: Easier to add new features and integrations
-
-## Technical Architecture
-
-```
-2Chat -> Webhook -> ngrok -> Flask -> Bot Processing -> Gemini AI
-                                  -> Scheduled Tasks -> Saturday Reports
+# Run with detailed logging
+python whatsapp_pilates_bot.py
 ```
 
-## Next Steps
+### Testing Message Generation
 
-The bot is now configured for webhook mode. Ensure:
-1. ✅ Environment variables are set
-2. ✅ 2Chat webhook is configured
-3. ✅ Bot is running
-4. ✅ ngrok tunnel is active
+The bot includes fallback mechanisms:
+- If AI fails, uses static templates
+- Comprehensive error logging
+- Automatic retry logic
 
-Start enjoying real-time Pilates training tracking! 🧘‍♀️💪
+### Adding New Features
 
-## Webhook Testing
+1. **Custom Message Templates**: Modify `config.py`
+2. **New Scheduling**: Update `start_scheduler()` method
+3. **Additional AI Prompts**: Extend `generate_*` methods
 
-You can test the webhook functionality by sending a POST request to the webhook endpoint while the bot is running.
+## 📊 Monitoring & Logs
 
-## Logs and Debugging
+### Log Levels
+- **INFO**: Normal operations, message sending, progress updates
+- **WARNING**: Non-critical issues, fallbacks triggered
+- **ERROR**: Failed operations, API errors
 
-The bot outputs detailed logs including:
-- Received webhook data
-- Message processing results
-- AI analysis results
-- Sent messages
+### Key Metrics Logged
+- Group discovery and monitoring
+- Message analysis results
+- Weekly progress statistics
+- Auto-reply management
+- Webhook events
 
-## Troubleshooting
+## 🔒 Security & Privacy
 
-### Webhook Not Receiving Messages
-1. Check if ngrok tunnel is running properly
-2. Verify 2Chat webhook configuration is correct
-3. Review Flask application logs
+### Data Protection
+- Sensitive data in `.env` (not committed to git)
+- No message content stored permanently
+- Only tracking completion status, not personal details
 
-### ngrok Connection Issues
-1. Check ngrok auth token
-2. Verify network connection
-3. Restart application
+### Safety Features
+- Minimum group age requirement
+- Rate limiting via API constraints
+- Error handling prevents crashes
 
-### Message Processing Errors
-1. Check Gemini API key
-2. Verify group permissions
-3. Review detailed error logs
+## 📋 Troubleshooting
 
 ### Common Issues
 
-1. **Bot not receiving messages**
-   - Verify the bot number is added to Pilates groups
-   - Check 2Chat webhook configuration
-   - Ensure groups contain "pilates" in their name
-   - Verify ngrok tunnel is active
+**Bot not receiving messages**
+- Check webhook URL configuration
+- Verify ngrok tunnel is active
+- Ensure 2Chat webhooks are properly subscribed
 
-2. **AI analysis not working**
-   - Verify Gemini API key is correct
-   - Check internet connection
-   - Review log messages for specific errors
+**AI not working**
+- Verify `GEMINI_API_KEY` is correct
+- Check API quota limits
+- Review error logs for specific issues
 
-3. **Saturday reports not sending**
-   - Verify system time and timezone
-   - Check that the bot is running continuously
-   - Review scheduled task logs
+**Messages not sending**
+- Validate `TWOCHAT_API_KEY` and `BOT_NUMBER`
+- Check 2Chat account status
+- Verify group permissions
 
-### Logs
-The bot provides detailed logging. Check console output for:
-- Webhook data reception
-- Group discovery results
-- Message analysis results
-- API call successes/failures
-- Weekly report generation
+**Scheduling not working**
+- Confirm timezone settings (`IRELAND_TIMEZONE`)
+- Check system time accuracy
+- Review scheduler thread status
 
-## Support
+## 🤝 Contributing
 
-For issues with:
-- **2Chat API**: Contact [2Chat Support](https://2chat.io/support)
-- **Gemini AI**: Check [Google AI Documentation](https://ai.google.dev/)
-- **Bot Code**: Review logs and error messages
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-## License
+## 📄 License
 
-This project is provided as-is for educational and personal use.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🙏 Acknowledgments
+
+- **2Chat API** for WhatsApp integration
+- **Google Gemini AI** for intelligent message processing
+- **ngrok** for webhook tunneling
+- **Flask** for webhook server
+
+---
+
+**Made with ❤️ for pilates communities worldwide** 🧘‍♀️✨
