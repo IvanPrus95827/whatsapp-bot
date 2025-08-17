@@ -454,8 +454,8 @@ class WhatsAppPilatesBot:
                     # group_message = config.GROUP_CONGRATULATIONS_TEMPLATE.format(count=completed_count)
                 group_message = self.generate_varied_message(group_message)
                 #### send messages to group ####
-                # self.send_group_message(group.uuid, group_message)
-                print(group_message)
+                self.send_group_message(group.uuid, group_message)
+                logger.info(f"sent to group {group.name}: {group_message}")
             
             print("-------------------------------- incompleted members --------------------------------")
             # Send individual reminders to incomplete members and update auto_reply_members
@@ -463,8 +463,8 @@ class WhatsAppPilatesBot:
                 if phone_number and phone_number != self.bot_number:
                     # Send reminder message
                     message = self.generate_varied_message(config.INDIVIDUAL_REMINDER_TEMPLATE)
-                    # self.send_individual_message(phone_number, message)
-                    print(phone_number, message)
+                    self.send_individual_message(phone_number, message)
+                    logger.info(f"sent to {phone_number}: {message}")
                     
                     # Add to auto_reply_members for future auto-replies
                     # Check if member is already in auto_reply_members
@@ -480,7 +480,7 @@ class WhatsAppPilatesBot:
                         auto_reply_member = AutoReplyMember(
                             phone_number=phone_number,
                             group_uuid=group.uuid,
-                            message_sent=config.INDIVIDUAL_REMINDER_TEMPLATE,
+                            message_sent=message,  # Store the actual varied message sent
                             created_at=current_time
                         )
                         self.auto_reply_members.append(auto_reply_member)
@@ -679,18 +679,17 @@ class WhatsAppPilatesBot:
             
             if reply_message:
                 # Send the auto reply
-                print(reply_message)
-                # success = self.send_individual_message(from_number, reply_message)
+                success = self.send_individual_message(from_number, reply_message)
                 
-                # if success:
-                #     logger.info(f"Auto reply sent to {from_number} ({sender_name})")
+                if success:
+                    logger.info(f"Auto reply sent to {from_number} ({sender_name}): {reply_message}")
                     
-                #     # Remove member from auto_reply_members after successful reply
-                #     self.auto_reply_members.remove(auto_reply_member)
-                #     self.save_auto_reply_members()
-                #     logger.info(f"Removed {from_number} from auto_reply_members")
-                # else:
-                #     logger.error(f"Failed to send auto reply to {from_number}")
+                    # Remove member from auto_reply_members after successful reply
+                    self.auto_reply_members.remove(auto_reply_member)
+                    self.save_auto_reply_members()
+                    logger.info(f"Removed {from_number} from auto_reply_members")
+                else:
+                    logger.error(f"Failed to send auto reply to {from_number}")
             else:
                 logger.error(f"Failed to generate auto reply for {from_number}")
                 
